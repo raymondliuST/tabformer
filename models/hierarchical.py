@@ -29,11 +29,13 @@ class TabFormerConcatEmbeddings(nn.Module):
         self.field_hidden_size = config.field_hidden_size
 
     def forward(self, input_ids):
+
         input_shape = input_ids.size()
 
         embeds_sz = list(input_shape[:-1]) + [input_shape[-1] * self.field_hidden_size]
         inputs_embeds = self.lin_proj(self.word_embeddings(input_ids).view(embeds_sz))
 
+        
         return inputs_embeds
 
 

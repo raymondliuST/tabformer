@@ -1,5 +1,6 @@
 from os import makedirs
 from os.path import join
+import os
 import logging
 import numpy as np
 import torch
@@ -7,14 +8,17 @@ import random
 from args import define_main_parser
 
 from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
-
-from dataset.prsa import PRSADataset
-from dataset.card import TransactionDataset
+from custom_trainer import CustomTrainer
 from models.modules import TabFormerBertLM, TabFormerGPT2
 from misc.utils import random_split_dataset
-from dataset.datacollator import TransDataCollatorForLanguageModeling
+from dataset.datacollator import TransDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling
+from dataset.event import EventDataset
+from dataset.user import UserDataset
+import wandb 
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
+wandb.init()
 logger = logging.getLogger(__name__)
 log = logger
 logging.basicConfig(
@@ -30,34 +34,41 @@ def main(args):
     random.seed(seed)  # python 
     np.random.seed(seed)  # numpy
     torch.manual_seed(seed)  # torch
+    
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)  # torch.cuda
 
-    if args.data_type == 'card':
-        dataset = TransactionDataset(root=args.data_root,
-                                     fname=args.data_fname,
-                                     fextension=args.data_extension,
-                                     vocab_dir=args.output_dir,
-                                     nrows=args.nrows,
-                                     user_ids=args.user_ids,
-                                     mlm=args.mlm,
-                                     cached=args.cached,
-                                     stride=args.stride,
-                                     flatten=args.flatten,
-                                     return_labels=False,
-                                     skip_user=args.skip_user)
-    elif args.data_type == 'prsa':
-        dataset = PRSADataset(stride=args.stride,
-                              mlm=args.mlm,
-                              return_labels=False,
-                              use_station=False,
-                              flatten=args.flatten,
-                              vocab_dir=args.output_dir)
-
-    else:
-        raise Exception(f"data type '{args.data_type}' not defined")
-
+    if args.data_type == 'event':
+        dataset = EventDataset(mlm=True,
+                 estids=None,
+                 seq_len=6,
+                 cached=True,
+                 root="./data/event_no_dedupe/",
+                 fname="event_data",
+                 vocab_dir="vocab",
+                 fextension="no_dedupe",
+                 nrows=None,
+                 flatten=False,
+                 stride=2,
+                 adap_thres=10 ** 8,
+                 return_labels=False,
+                 skip_user=True)
+    elif args.data_type == "user":
+        dataset = UserDataset(mlm=True,
+                 estids=None,
+                 cached=False,
+                 root="./data/user/",
+                 fname="user_data",
+                 vocab_dir="vocab",
+                 fextension="user",
+                 nrows=None,
+                 flatten=True,
+                 adap_thres=10 ** 8,
+                 return_labels=False,
+                 skip_user=True)
+    
     vocab = dataset.vocab
+
     custom_special_tokens = vocab.get_special_tokens()
 
     # split dataset into train, val, test [0.6. 0.2, 0.2]
@@ -96,7 +107,7 @@ def main(args):
     log.info(f"model initiated: {tab_net.model.__class__}")
 
     if args.flatten:
-        collactor_cls = "DataCollatorForLanguageModeling"
+        collactor_cls = "UserDataCollatorForLanguageModeling"
     else:
         collactor_cls = "TransDataCollatorForLanguageModeling"
 
@@ -104,34 +115,51 @@ def main(args):
     data_collator = eval(collactor_cls)(
         tokenizer=tab_net.tokenizer, mlm=args.mlm, mlm_probability=args.mlm_prob
     )
+    print(f"logdir: {args.log_dir}")
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    print(device)
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,  # output directory
         num_train_epochs=args.num_train_epochs,  # total number of training epochs
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
         logging_dir=args.log_dir,  # directory for storing logs
         save_steps=args.save_steps,
         do_train=args.do_train,
-        # do_eval=args.do_eval,
-        # evaluation_strategy="epoch",
+        do_eval=args.do_eval,
+        evaluation_strategy="epoch",
         prediction_loss_only=True,
         overwrite_output_dir=True,
-        # eval_steps=10000
-    )
+        logging_steps=100,
+        report_to="wandb",
+        run_name=f"{args.data_type}/lr={args.learning_rate}/hs={args.field_hs}",
+        dataloader_num_workers=4,
+        fp16= True
+    )   
 
-    trainer = Trainer(
+   
+    
+    # optimizer 
+    training_args = training_args.set_optimizer(name="adamw_torch", learning_rate = args.learning_rate, beta1=0.9)
+    # training_args = training_args.set_lr_scheduler(name="cosine", warmup_ratio=0.05, max_steps = -1)
+    print(training_args.num_train_epochs)
+
+    trainer = CustomTrainer(
         model=tab_net.model,
         args=training_args,
         data_collator=data_collator,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
     )
-
+    
     if args.checkpoint:
         model_path = join(args.output_dir, f'checkpoint-{args.checkpoint}')
     else:
         model_path = args.output_dir
 
-    trainer.train(model_path=model_path)
+    trainer.train()
 
 
 if __name__ == "__main__":
@@ -140,6 +168,7 @@ if __name__ == "__main__":
     opts = parser.parse_args()
 
     opts.log_dir = join(opts.output_dir, "logs")
+    
     makedirs(opts.output_dir, exist_ok=True)
     makedirs(opts.log_dir, exist_ok=True)
 

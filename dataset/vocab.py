@@ -41,6 +41,8 @@ class Vocabulary:
             self.token2id[self.special_field_tag][token] = [global_id, local_id]
             self.id2token[global_id] = [token, self.special_field_tag, local_id]
 
+        self.column_weights = {} # this is used for univariate imbalanced data
+
     def set_id(self, token, field_name, return_local=False):
         global_id, local_id = None, None
 
@@ -118,6 +120,7 @@ class Vocabulary:
                 token, field, _ = self.id2token[idx]
                 token = "%s_%s" % (field, token)
                 fout.write("%s\n" % token)
+
 
     def get_field_keys(self, remove_target=True, ignore_special=False):
         keys = list(self.field_keys.keys())

@@ -1,12 +1,14 @@
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
+from torchmetrics.classification import MulticlassAccuracy, MulticlassF1Score
+from transformers.models.bert.modeling_bert import ACT2FN
 
-from transformers.modeling_bert import ACT2FN, BertLayerNorm
-from transformers.modeling_bert import BertForMaskedLM
-from transformers.configuration_bert import BertConfig
+from transformers.models.bert.modeling_bert import BertForMaskedLM
+from transformers.models.bert.configuration_bert import BertConfig
 from models.custom_criterion import CustomAdaptiveLogSoftmax
 
+BertLayerNorm = torch.nn.LayerNorm
 
 class TabFormerBertConfig(BertConfig):
     def __init__(
@@ -80,6 +82,7 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
         self.vocab = vocab
         self.cls = TabFormerBertOnlyMLMHead(config)
         self.init_weights()
+        self.step = 0
 
     def forward(
             self,
@@ -104,16 +107,20 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
         )
-
+        
+        self.step += 1
         sequence_output = outputs[0]  # [bsz * seqlen * hidden]
 
         if not self.config.flatten:
+            
             output_sz = list(sequence_output.size())
-            expected_sz = [output_sz[0], output_sz[1]*self.config.ncols, -1]
-            sequence_output = sequence_output.view(expected_sz)
-            masked_lm_labels = masked_lm_labels.view(expected_sz[0], -1)
+            expected_sz = [output_sz[0], output_sz[1]*self.config.ncols, -1] #bsz, (seqlen * ncol), -1
 
-        prediction_scores = self.cls(sequence_output) # [bsz * seqlen * vocab_sz]
+            sequence_output = sequence_output.view(expected_sz) #bsz, (seqlen * ncol), hidden_size
+            masked_lm_labels = masked_lm_labels.view(expected_sz[0], -1) # bsz, (seqlen * ncol)
+
+        
+        prediction_scores = self.cls(sequence_output) # [bsz * (seqlen, ncols) * vocab_sz]
 
         outputs = (prediction_scores,) + outputs[2:]
 
@@ -121,30 +128,71 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
         # masked_lm_labels  : [bsz x seqlen]
 
         total_masked_lm_loss = 0
+        metric_dict = {}
 
         seq_len = prediction_scores.size(1)
         # TODO : remove_target is True for card
-        field_names = self.vocab.get_field_keys(remove_target=True, ignore_special=False)
-        for field_idx, field_name in enumerate(field_names):
-            col_ids = list(range(field_idx, seq_len, len(field_names)))
+        field_names = self.vocab.get_field_keys(remove_target=False, ignore_special=True)
+        
 
+        for field_idx, field_name in enumerate(field_names):
+
+
+            col_ids = list(range(field_idx, seq_len, len(field_names)))
+            
             global_ids_field = self.vocab.get_field_ids(field_name)
 
-            prediction_scores_field = prediction_scores[:, col_ids, :][:, :, global_ids_field]  # bsz * 10 * K
-            masked_lm_labels_field = masked_lm_labels[:, col_ids]
+            
+            prediction_scores_field = prediction_scores[:, col_ids, :][:, :, global_ids_field]  # bsz * seq_len * field_vocab_size
+
+            masked_lm_labels_field = masked_lm_labels[:, col_ids] # bsz * (seq length) 
             masked_lm_labels_field_local = self.vocab.get_from_global_ids(global_ids=masked_lm_labels_field,
-                                                                          what_to_get='local_ids')
+                                                                        what_to_get='local_ids')
 
             nfeas = len(global_ids_field)
-            loss_fct = self.get_criterion(field_name, nfeas, prediction_scores.device)
+            
+            cls_weights = self.vocab.column_weights.get(field_name)
+            if cls_weights is None:
+                cls_weights_tensor = None
+            else:
+                cls_weights_tensor = torch.tensor(cls_weights).to(self.device) 
+            loss_fct = CrossEntropyLoss(weight=cls_weights_tensor, reduction='mean')
 
-            masked_lm_loss_field = loss_fct(prediction_scores_field.view(-1, len(global_ids_field)),
-                                            masked_lm_labels_field_local.view(-1))
+            masked_lm_loss_field = loss_fct(prediction_scores_field.view(-1, len(global_ids_field)), masked_lm_labels_field_local.view(-1))
+
+            # metric
+            metrics = self.compute_metrix(prediction_scores_field.view(-1, len(global_ids_field)), masked_lm_labels_field_local.view(-1), nfeas)
 
             total_masked_lm_loss += masked_lm_loss_field
+            metric_dict[field_name] = metrics
 
-        return (total_masked_lm_loss,) + outputs
+            # if self.step%100 == 0 and field_name == "domain_category":
+                
+            #     print(field_name)
+            #     print(masked_lm_accuracy_field)
+            #     print(f"predictions: ")
+            #     print(f"{torch.argmax(prediction_scores_field, dim=2)}")
+            #     print(f"True: ")
+            #     print(f"{masked_lm_labels_field_local}")
+            #     import pdb
+            #     pdb.set_trace()
+            # log accuracies
+            
+            outputs = {"loss": total_masked_lm_loss, "outputs": outputs, "metric_dict": metric_dict}
+            
+        return outputs
 
+    def compute_metrix(self, prediction_scores_field, masked_lm_labels_field_local, nfeas):
+        micro_acc = MulticlassAccuracy(average = 'micro', ignore_index=-100, num_classes=nfeas).to(self.device) # Sum statistics over all labels
+        macro_acc = MulticlassAccuracy(average = 'macro', ignore_index=-100, num_classes=nfeas).to(self.device) # Calculate statistics for each label and average them
+        f1_score = MulticlassF1Score(average = 'macro', ignore_index=-100, num_classes=nfeas).to(self.device)
+
+        return {
+            "micro":micro_acc(prediction_scores_field, masked_lm_labels_field_local),
+            "macro":macro_acc(prediction_scores_field, masked_lm_labels_field_local),
+            "f1":f1_score(prediction_scores_field, masked_lm_labels_field_local)
+        }
+        
     def get_criterion(self, fname, vs, device, cutoffs=False, div_value=4.0):
 
         if fname in self.vocab.adap_sm_cols:

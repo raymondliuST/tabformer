@@ -33,13 +33,17 @@ class TabFormerHierarchicalLM(PreTrainedModel):
         super().__init__(config)
 
         self.config = config
-
+        self.vocab = vocab
         self.tab_embeddings = TabFormerEmbeddings(self.config)
         self.tb_model = TabFormerBertForMaskedLM(self.config, vocab)
 
     def forward(self, input_ids, **input_args):
+        # input ids: bsz, seq_len, ncol
+        # input args {masked_lm_labels: tensor}
         inputs_embeds = self.tab_embeddings(input_ids)
-        return self.tb_model(inputs_embeds=inputs_embeds, **input_args)
+
+        output = self.tb_model(inputs_embeds=inputs_embeds, **input_args)
+        return output
 
 
 class TabFormerBertLM:

@@ -9,7 +9,7 @@ def define_main_parser(parser=None):
                         default=1,
                         help="job id: 1[default] used for job queue")
     parser.add_argument("--seed", type=int,
-                        default=9,
+                        default=12,
                         help="seed to use: 9[default]")
 
     parser.add_argument("--lm_type", default='bert', choices=['bert', 'gpt2'],
@@ -21,11 +21,11 @@ def define_main_parser(parser=None):
     parser.add_argument("--mlm", action='store_true',
                         help="masked lm loss; pass it for BERT")
     parser.add_argument("--mlm_prob", type=float,
-                        default=0.15,
+                        default=0.35,
                         help="mask mlm_probability")
 
     parser.add_argument("--data_type", type=str,
-                        default="card", choices=['card', 'prsa'],
+                        default="card", choices=['event', 'user'],
                         help='root directory for files')
     parser.add_argument("--data_root", type=str,
                         default="./data/credit_card/",
@@ -62,8 +62,16 @@ def define_main_parser(parser=None):
                         default=500,
                         help="set checkpointing")
     parser.add_argument("--num_train_epochs", type=int,
-                        default=3,
+                        default=25,
                         help="number of training epochs")
+    parser.add_argument("--batch_size", type=int,
+                        default=256,
+                        help="number of training epochs")
+    parser.add_argument("--learning_rate", type=int,
+                        default=4e-04,
+                        help="number of training epochs")
+    
+
     parser.add_argument("--stride", type=int,
                         default=5,
                         help="stride for transaction sliding window")
