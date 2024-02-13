@@ -76,7 +76,9 @@ class TabFormerEmbeddings(nn.Module):
         self.lin_proj = nn.Linear(config.field_hidden_size * config.ncols, config.hidden_size)
 
     def forward(self, input_ids):
+        
         inputs_embeds = self.word_embeddings(input_ids)
+
         embeds_shape = list(inputs_embeds.size())
 
         inputs_embeds = inputs_embeds.view([-1] + embeds_shape[-2:])

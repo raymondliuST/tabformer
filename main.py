@@ -39,14 +39,14 @@ def main(args):
         torch.cuda.manual_seed_all(seed)  # torch.cuda
 
     if args.data_type == 'event':
-        dataset = EventDataset(mlm=True,
+        event_dataset = EventDataset(mlm=True,
                  estids=None,
                  seq_len=6,
                  cached=True,
-                 root="./data/event_no_dedupe/",
+                 root="./data/event_w_dedupe/",
                  fname="event_data",
                  vocab_dir="vocab",
-                 fextension="no_dedupe",
+                 fextension="event_w_dedupe",
                  nrows=None,
                  flatten=False,
                  stride=2,
@@ -54,7 +54,7 @@ def main(args):
                  return_labels=False,
                  skip_user=True)
     elif args.data_type == "user":
-        dataset = UserDataset(mlm=True,
+        user_dataset = UserDataset(mlm=True,
                  estids=None,
                  cached=False,
                  root="./data/user/",
@@ -142,8 +142,7 @@ def main(args):
    
     
     # optimizer 
-    training_args = training_args.set_optimizer(name="adamw_torch", learning_rate = args.learning_rate, beta1=0.9)
-    # training_args = training_args.set_lr_scheduler(name="cosine", warmup_ratio=0.05, max_steps = -1)
+    # training_args = training_args.set_optimizer(learning_rate = args.learning_rate, beta1=0.9)
     print(training_args.num_train_epochs)
 
     trainer = CustomTrainer(

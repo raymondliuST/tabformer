@@ -22,35 +22,49 @@ import pandas as pd
 import torch
 
 
-dataset = UserDataset(mlm=True,
+# dataset = UserDataset(mlm=True,
+#                  estids=None,
+#                  cached=False,
+#                  root="./data/user/",
+#                  fname="user_data",
+#                  vocab_dir="vocab",
+#                  fextension="user",
+#                  nrows=None,
+#                  flatten=True,
+#                  adap_thres=10 ** 8,
+#                  return_labels=False,
+#                  skip_user=True)
+
+dataset = EventDataset(mlm=True,
                  estids=None,
-                 cached=False,
-                 root="./data/user/",
-                 fname="user_data",
+                 seq_len=6,
+                 cached=True,
+                 root="./data/event_w_dedupe/",
+                 fname="event_data",
                  vocab_dir="vocab",
-                 fextension="user",
+                 fextension="event_w_dedupe",
                  nrows=None,
-                 flatten=True,
+                 flatten=False,
+                 stride=2,
                  adap_thres=10 ** 8,
                  return_labels=False,
                  skip_user=True)
 
 vocab = dataset.vocab
-import pdb
-pdb.set_trace()
+
 custom_special_tokens = vocab.get_special_tokens()
 
 tab_net = TabFormerBertLM(custom_special_tokens,
                                vocab=vocab,
                                field_ce=True,
-                               flatten=True,
+                               flatten=False,
                                ncols=dataset.ncols,
                                field_hidden_size=80
                                )
 
-collactor_cls = "UserDataCollatorForLanguageModeling"
+collactor_cls = "TransDataCollatorForLanguageModeling"
 data_collator = eval(collactor_cls)(
-        tokenizer=tab_net.tokenizer, mlm=True, mlm_probability=0.8
+        tokenizer=tab_net.tokenizer, mlm=True, mlm_probability=0.15
     )
 model = tab_net.model
 batch_size=16

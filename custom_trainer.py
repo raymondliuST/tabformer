@@ -4,7 +4,7 @@ class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-    def compute_loss(self, model, inputs):
+    def compute_loss(self, model, inputs, return_outputs=True):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
 

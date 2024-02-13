@@ -41,7 +41,6 @@ class TabFormerHierarchicalLM(PreTrainedModel):
         # input ids: bsz, seq_len, ncol
         # input args {masked_lm_labels: tensor}
         inputs_embeds = self.tab_embeddings(input_ids)
-
         output = self.tb_model(inputs_embeds=inputs_embeds, **input_args)
         return output
 

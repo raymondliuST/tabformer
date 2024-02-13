@@ -279,7 +279,7 @@ class EventDataset(Dataset):
         data = self.get_csv(data_file)
         log.info(f"{data_file} is read.")
 
-        sub_columns = ["dayOfMonth", "timeOfDay", "dayOfWeek", "domain_category", "url_category"]
+        sub_columns = ['dayOfWeek', 'dayOfMonth', 'timeOfDay', 'url_category', 'domain_category']
 
         log.info("label-fit-transform.")
         for col_name in tqdm.tqdm(sub_columns):
@@ -288,7 +288,7 @@ class EventDataset(Dataset):
             self.encoder_fit[col_name] = col_fit
             data[col_name] = col_data
 
-        columns_to_select = ['estid',"dayOfMonth", "timeOfDay", "dayOfWeek", "domain_category", "url_category"]
+        columns_to_select = ['estid','dayOfWeek', 'dayOfMonth', 'timeOfDay', 'url_category', 'domain_category']
 
         self.event_table = data[columns_to_select]
 

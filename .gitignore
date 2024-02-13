@@ -1,5 +1,5 @@
 wandb/
 output/
-data/
+# data/
 vocab/
 model_evaluation/

@@ -121,7 +121,6 @@ class Vocabulary:
                 token = "%s_%s" % (field, token)
                 fout.write("%s\n" % token)
 
-
     def get_field_keys(self, remove_target=True, ignore_special=False):
         keys = list(self.field_keys.keys())
 

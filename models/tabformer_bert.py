@@ -97,6 +97,7 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             encoder_attention_mask=None,
             lm_labels=None,
     ):
+
         outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
@@ -107,7 +108,7 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
         )
-        
+
         self.step += 1
         sequence_output = outputs[0]  # [bsz * seqlen * hidden]
 
@@ -119,8 +120,8 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             sequence_output = sequence_output.view(expected_sz) #bsz, (seqlen * ncol), hidden_size
             masked_lm_labels = masked_lm_labels.view(expected_sz[0], -1) # bsz, (seqlen * ncol)
 
-        
-        prediction_scores = self.cls(sequence_output) # [bsz * (seqlen, ncols) * vocab_sz]
+
+        prediction_scores = self.cls(sequence_output) # [bsz , (seqlen * ncols) , vocab_sz]
 
         outputs = (prediction_scores,) + outputs[2:]
 
@@ -178,9 +179,9 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             #     pdb.set_trace()
             # log accuracies
             
-            outputs = {"loss": total_masked_lm_loss, "outputs": outputs, "metric_dict": metric_dict}
+        result = {"loss": total_masked_lm_loss, "outputs": outputs, "metric_dict": metric_dict}
             
-        return outputs
+        return result
 
     def compute_metrix(self, prediction_scores_field, masked_lm_labels_field_local, nfeas):
         micro_acc = MulticlassAccuracy(average = 'micro', ignore_index=-100, num_classes=nfeas).to(self.device) # Sum statistics over all labels
