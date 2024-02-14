@@ -3,3 +3,4 @@ output/
 # data/
 vocab/
 model_evaluation/
+**/__pycache__/
