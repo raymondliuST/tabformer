@@ -11,7 +11,7 @@ from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArgum
 from custom_trainer import CustomTrainer
 from models.modules import TabFormerBertLM, TabFormerGPT2
 from misc.utils import random_split_dataset
-from dataset.datacollator import TransDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling
+from dataset.datacollator import EventDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling
 from dataset.event import EventDataset
 from dataset.user import UserDataset
 import wandb 
@@ -39,7 +39,7 @@ def main(args):
         torch.cuda.manual_seed_all(seed)  # torch.cuda
 
     if args.data_type == 'event':
-        event_dataset = EventDataset(mlm=True,
+        dataset = EventDataset(mlm=True,
                  estids=None,
                  seq_len=6,
                  cached=True,
@@ -50,25 +50,19 @@ def main(args):
                  nrows=None,
                  flatten=False,
                  stride=2,
-                 adap_thres=10 ** 8,
-                 return_labels=False,
                  skip_user=True)
     elif args.data_type == "user":
-        user_dataset = UserDataset(mlm=True,
+        dataset = UserDataset(mlm=True,
                  estids=None,
-                 cached=False,
+                 cached=True,
                  root="./data/user/",
                  fname="user_data",
                  vocab_dir="vocab",
                  fextension="user",
-                 nrows=None,
                  flatten=True,
-                 adap_thres=10 ** 8,
-                 return_labels=False,
                  skip_user=True)
     
     vocab = dataset.vocab
-
     custom_special_tokens = vocab.get_special_tokens()
 
     # split dataset into train, val, test [0.6. 0.2, 0.2]
@@ -109,7 +103,7 @@ def main(args):
     if args.flatten:
         collactor_cls = "UserDataCollatorForLanguageModeling"
     else:
-        collactor_cls = "TransDataCollatorForLanguageModeling"
+        collactor_cls = "EventDataCollatorForLanguageModeling"
 
     log.info(f"collactor class: {collactor_cls}")
     data_collator = eval(collactor_cls)(
@@ -138,7 +132,6 @@ def main(args):
         dataloader_num_workers=4,
         fp16= True
     )   
-
    
     
     # optimizer 

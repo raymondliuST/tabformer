@@ -34,7 +34,7 @@ def load_vocab(vocab_path):
     return vocab
 
 class Vocabulary:
-    def __init__(self, adap_thres=10000, target_column_name="Is Fraud?"):
+    def __init__(self):
         self.unk_token = "[UNK]"
         self.sep_token = "[SEP]"
         self.pad_token = "[PAD]"
@@ -43,10 +43,8 @@ class Vocabulary:
         self.bos_token = "[BOS]"
         self.eos_token = "[EOS]"
 
-        self.adap_thres = adap_thres
         self.adap_sm_cols = set()
 
-        self.target_column_name = target_column_name
         self.special_field_tag = "SPECIAL"
 
         self.special_tokens = [self.unk_token, self.sep_token, self.pad_token,
@@ -139,33 +137,31 @@ class Vocabulary:
         else:
             raise ValueError("Only 'local_ids' or 'tokens' can be passed as value of the 'what_to_get' parameter.")
 
-    # def save_vocab(self, fname):
-    #     self.filename = fname
-    #     with open(fname, "w") as fout:
-    #         for idx in self.id2token:
-    #             token, field, _ = self.id2token[idx]
-    #             token = "%s_%s" % (field, token)
-    #             fout.write("%s\n" % token)
 
     def save_vocab(self, fname):
-        self.filename = fname
+        self.filename = fname+ '.nb'
 
         fields_to_save = {
                           "token2id": self.token2id,
                           "id2token": self.id2token,
                           "field_keys": self.field_keys,
-                          "fielname": self.filename,
+                          "filename": f'{self.filename}',
                           "column_weights": self.column_weights
                           }
 
-        with open(fname, 'w') as f:
+        with open(f'{fname}.json', 'w') as f:
             json.dump(fields_to_save, f)
 
-    def get_field_keys(self, remove_target=True, ignore_special=False):
+        # format for BERT tokenizer
+        with open(f'{fname}.nb', "w") as fout:
+            for idx in self.id2token:
+                token, field, _ = self.id2token[idx]
+                token = "%s_%s" % (field, token)
+                fout.write("%s\n" % token)
+
+    def get_field_keys(self, ignore_special=False):
         keys = list(self.field_keys.keys())
 
-        if remove_target and self.target_column_name in keys:
-            keys.remove(self.target_column_name)
         if ignore_special:
             keys.remove(self.special_field_tag)
         return keys

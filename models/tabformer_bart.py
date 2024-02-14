@@ -209,7 +209,7 @@ class TabFormerBart(BartForConditionalGeneration):
         outputs = (prediction_scores,) + outputs[2:]
 
         total_masked_lm_loss = 0
-        field_names = self.decoder_vocab.get_field_keys(remove_target=False, ignore_special=True)
+        field_names = self.decoder_vocab.get_field_keys(ignore_special=True)
 
         seq_len = prediction_scores.size(1)
         for field_idx, field_name in enumerate(field_names):

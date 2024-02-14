@@ -18,7 +18,7 @@ from models.tabformer_bart import TabFormerBart, TabFormerBartConfig
 
 from models.modules import TabFormerBertLM, TabFormerGPT2
 from misc.utils import random_split_dataset
-from dataset.datacollator import TransDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling, BehaviorDataCollatorForLanguageModeling
+from dataset.datacollator import EventDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling, BehaviorDataCollatorForLanguageModeling
 
 import pandas as pd
 from transformers import AdamW

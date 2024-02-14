@@ -29,26 +29,21 @@ class UserDataset(Dataset):
                  fname="user_data",
                  vocab_dir="vocab",
                  fextension="user",
-                 nrows=None,
                  flatten=True,
-                 adap_thres=10 ** 8,
-                 return_labels=False,
                  skip_user=True):
 
         self.root = root
         self.fname = fname
-        self.nrows = nrows
         self.fextension = f'_{fextension}' if fextension else ''
         self.cached = cached
         self.estids = estids
-        self.return_labels = return_labels
         self.skip_user = skip_user
 
         self.mlm = mlm
 
         self.flatten = flatten
+        self.vocab = Vocabulary()
 
-        self.vocab = Vocabulary(adap_thres)
         self.encoder_fit = {}
 
         self.user_table = None
@@ -72,37 +67,24 @@ class UserDataset(Dataset):
         else:
             return_data = torch.tensor(self.data[index], dtype=torch.long).reshape(self.seq_len, -1)
 
-        if self.return_labels:
-            return_data = (return_data, torch.tensor(self.labels[index], dtype=torch.long))
-
         return return_data
 
     def __len__(self):
         return len(self.data)
 
-    @staticmethod
-    def label_fit_transform(column, enc_type="label"):
-        if enc_type == "label":
-            mfit = LabelEncoder()
-        else:
-            mfit = MinMaxScaler()
-        mfit.fit(column)
-
-        return mfit, mfit.transform(column)
-
     def user_level_data(self):
-        # Group trans data by user estid
+        # Group user data by user estid
         # Total Length will be the number of unique user
         # For each user 
 
         fname = path.join(self.root, f"preprocessed/{self.fname}.user{self.fextension}.pkl")
-        trans_data, trans_labels = [], []
+        user_data = []
 
         if self.cached and path.isfile(fname):
             log.info(f"loading cached user level data from {fname}")
             cached_data = pickle.load(open(fname, "rb"))
-            trans_data = cached_data["trans"]
-            trans_labels = cached_data["labels"]
+            user_data = cached_data["user"]
+            # user_labels = cached_data["labels"]
             columns_names = cached_data["columns"]
 
         else:
@@ -115,31 +97,31 @@ class UserDataset(Dataset):
                 # assumption that user is first field
                 skip_idx = 1 if self.skip_user else 0
 
-                trans_data.append(row[skip_idx:])
-                trans_labels.append(row[-1]) # not used
+                user_data.append(row[skip_idx:])
+                # user_labels.append(row[-1]) # not used
 
             if self.skip_user:
                 columns_names.remove("estid")
 
             with open(fname, 'wb') as cache_file:
-                pickle.dump({"trans": trans_data, "labels": trans_labels, "columns": columns_names}, cache_file)
+                pickle.dump({"user": user_data, "columns": columns_names}, cache_file)
 
         # convert to str
-        return trans_data, trans_labels, columns_names
+        return user_data, columns_names
 
-    def format_trans(self, trans_lst, column_names):
+    def format_user(self, user_lst, column_names):
         # Convert from local id to global id. 
-        # Add seperation token after each trans
+        # Add seperation token after each user
         
-        trans_lst = list(divide_chunks(trans_lst, len(self.vocab.field_keys) - 1))  # 2 to ignore isFraud and SPECIAL
+        user_lst = list(divide_chunks(user_lst, len(self.vocab.field_keys) - 1))  # 2 to ignore isFraud and SPECIAL
         
         user_vocab_ids = []
 
         sep_id = self.vocab.get_id(self.vocab.sep_token, special_token=True)
         
-        for trans in trans_lst:
+        for user in user_lst:
             vocab_ids = []
-            for jdx, field in enumerate(trans):
+            for jdx, field in enumerate(user):
 
                 vocab_id = self.vocab.get_id(field, column_names[jdx])
                 vocab_ids.append(vocab_id)
@@ -154,41 +136,30 @@ class UserDataset(Dataset):
 
     def prepare_samples(self):
         log.info("preparing user level data...")
-        trans_data, trans_labels, columns_names = self.user_level_data()
+        user_data, columns_names = self.user_level_data()
 
-        log.info("creating transaction samples with vocab")
+        log.info("creating useraction samples with vocab")
         print("preparing user level data...")
 
-        for user_idx in tqdm.tqdm(range(len(trans_data))):
-            user_row = trans_data[user_idx]
+        for user_idx in tqdm.tqdm(range(len(user_data))):
+            user_row = user_data[user_idx]
 
-            user_row_ids = self.format_trans(user_row, columns_names)
-            user_labels = trans_labels[user_idx]
-
-            bos_token = self.vocab.get_id(self.vocab.bos_token, special_token=True)  # will be used for GPT2
-            eos_token = self.vocab.get_id(self.vocab.eos_token, special_token=True)  # will be used for GPT2
+            user_row_ids = self.format_user(user_row, columns_names)
 
             self.data.append(user_row_ids[0])
 
-
-        '''
-            ncols = total fields - 1 (special tokens)
-            if bert:
-                ncols += 1 (for sep)
-        '''
         self.ncols = len(self.vocab.field_keys) - 2 + (1 if self.mlm else 0)
 
         log.info(f"ncols: {self.ncols}")
         log.info(f"no of samples {len(self.data)}")
 
     def get_csv(self, fname):
-        data = pd.read_csv(fname, nrows=self.nrows)
+        data = pd.read_csv(fname)
         if self.estids:
             log.info(f'Filtering data by user ids list: {self.estids}...')
             self.estids = map(int, self.estids)
             data = data[data['estid'].isin(self.estids)]
 
-        self.nrows = data.shape[0]
         log.info(f"read data : {data.shape}")
         return data
 
@@ -198,10 +169,10 @@ class UserDataset(Dataset):
 
     def init_save_vocab(self, vocab_dir):
 
-        file_name = path.join(vocab_dir, f'vocab{self.fextension}.json')
+        file_name = path.join(vocab_dir, f'vocab{self.fextension}')
 
         if self.cached:
-            self.vocab = load_vocab(file_name)
+            self.vocab = load_vocab(f'{file_name}.json')
             return
 
         column_names = list(self.user_table.columns)
@@ -226,12 +197,15 @@ class UserDataset(Dataset):
             vocab_size = len(self.vocab.token2id[column])
             log.info(f"column : {column}, vocab size : {vocab_size}")
 
-            if vocab_size > self.vocab.adap_thres:
-                log.info(f"\tsetting {column} for adaptive softmax")
-                self.vocab.adap_sm_cols.add(column)
-
         log.info(f"saving vocab at {file_name}")
         self.vocab.save_vocab(file_name)
+
+    @staticmethod
+    def label_fit_transform(column, enc_type="label"):
+        mfit = LabelEncoder()
+        mfit.fit(column)
+
+        return mfit, mfit.transform(column)
 
     def encode_data(self):
         dirname = path.join(self.root, "preprocessed")
@@ -270,3 +244,5 @@ class UserDataset(Dataset):
         log.info(f"writing cached encoder fit to {encoder_fname}")
         pickle.dump(self.encoder_fit, open(encoder_fname, "wb"))
         path.isfile(path.join(dirname, fname))
+
+    

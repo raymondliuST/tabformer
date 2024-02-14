@@ -51,6 +51,7 @@ class TabFormerBertLM:
         self.ncols = ncols
         self.vocab = vocab
         vocab_file = self.vocab.filename
+
         hidden_size = field_hidden_size if flatten else (field_hidden_size * self.ncols)
 
         self.config = TabFormerBertConfig(vocab_size=len(self.vocab),

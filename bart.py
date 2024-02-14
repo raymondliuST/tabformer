@@ -18,7 +18,7 @@ from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArgum
 from custom_trainer import CustomTrainer
 from models.modules import TabFormerBertLM, TabFormerGPT2
 from misc.utils import random_split_dataset
-from dataset.datacollator import TransDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling, BehaviorDataCollatorForLanguageModeling
+from dataset.datacollator import EventDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling, BehaviorDataCollatorForLanguageModeling
 from dataset.event import EventDataset
 from dataset.user import UserDataset
 import wandb

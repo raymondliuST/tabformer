@@ -33,8 +33,6 @@ class EventDataset(Dataset):
                  nrows=None,
                  flatten=False,
                  stride=2,
-                 adap_thres=10 ** 8,
-                 return_labels=False,
                  skip_user=True):
 
         self.root = root
@@ -43,7 +41,6 @@ class EventDataset(Dataset):
         self.fextension = f'_{fextension}' if fextension else ''
         self.cached = cached
         self.estids = estids
-        self.return_labels = return_labels
         self.skip_user = skip_user
 
         self.mlm = mlm
@@ -51,7 +48,7 @@ class EventDataset(Dataset):
 
         self.flatten = flatten
 
-        self.vocab = Vocabulary(adap_thres)
+        self.vocab = Vocabulary()
         self.seq_len = seq_len
         self.encoder_fit = {}
 
@@ -75,23 +72,10 @@ class EventDataset(Dataset):
         else:
             return_data = torch.tensor(self.data[index], dtype=torch.long).reshape(self.seq_len, -1)
 
-        if self.return_labels:
-            return_data = (return_data, torch.tensor(self.labels[index], dtype=torch.long))
-
         return return_data
 
     def __len__(self):
         return len(self.data)
-
-    @staticmethod
-    def label_fit_transform(column, enc_type="label"):
-        if enc_type == "label":
-            mfit = LabelEncoder()
-        else:
-            mfit = MinMaxScaler()
-        mfit.fit(column)
-
-        return mfit, mfit.transform(column)
 
     def user_level_data(self):
         # Group trans data by user estid
@@ -140,7 +124,7 @@ class EventDataset(Dataset):
 
     def format_trans(self, trans_lst, column_names):
         # Convert from local id to global id. 
-        # Add seperation token after each trans
+        # Add seperation token after each event
         
         trans_lst = list(divide_chunks(trans_lst, len(self.vocab.field_keys) - 1))  # 2 to ignore isFraud and SPECIAL
         
@@ -223,11 +207,11 @@ class EventDataset(Dataset):
         data.to_csv(fname, index=False)
 
     def init_save_vocab(self, vocab_dir):
-        
-        file_name = path.join(vocab_dir, f'vocab{self.fextension}.json')
+
+        file_name = path.join(vocab_dir, f'vocab{self.fextension}')
 
         if self.cached:
-            self.vocab = load_vocab(file_name)
+            self.vocab = load_vocab(f'{file_name}.json')
             return
 
         column_names = list(self.event_table.columns)
@@ -238,6 +222,10 @@ class EventDataset(Dataset):
 
         for column in column_names:
             unique_values = self.event_table[column].value_counts(sort=True).to_dict()  # returns sorted
+            class_weight_col = [sum(unique_values.values())/count for cls, count in unique_values.items()]
+
+            self.vocab.column_weights[column] = class_weight_col # setting up column weights
+
             for val in unique_values:
                 self.vocab.set_id(val, column)
 
@@ -248,12 +236,15 @@ class EventDataset(Dataset):
             vocab_size = len(self.vocab.token2id[column])
             log.info(f"column : {column}, vocab size : {vocab_size}")
 
-            if vocab_size > self.vocab.adap_thres:
-                log.info(f"\tsetting {column} for adaptive softmax")
-                self.vocab.adap_sm_cols.add(column)
-
         log.info(f"saving vocab at {file_name}")
         self.vocab.save_vocab(file_name)
+
+    @staticmethod
+    def label_fit_transform(column, enc_type="label"):
+        mfit = LabelEncoder()
+        mfit.fit(column)
+
+        return mfit, mfit.transform(column)
 
     def encode_data(self):
         dirname = path.join(self.root, "preprocessed")

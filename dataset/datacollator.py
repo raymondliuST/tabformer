@@ -18,7 +18,7 @@ def _collate_batch(examples, tokenizer, pad_to_multiple_of: Optional[int] = None
 
     are_tensors_same_length = all(x.size(0) == length_of_first for x in examples)
     if are_tensors_same_length and (pad_to_multiple_of is None or length_of_first % pad_to_multiple_of == 0):
-        return torch.stack(examples, dim=0)
+        return torch.stack(examples, dim=0), None
 
     # If yes, check if we have a `pad_token`.
     if tokenizer._pad_token is None:
@@ -53,10 +53,8 @@ def _collate_batch(examples, tokenizer, pad_to_multiple_of: Optional[int] = None
             else:
                 result[i, -example.shape[0] :] = example
 
-        attention_mask = None
-    return result, attention_mask
-
-
+        attention_mask = (result[:,0] != tokenizer.pad_token_id).int()
+    return (result, attention_mask)
 
 def tolist(x):
     if isinstance(x, list):
@@ -90,7 +88,7 @@ class BehaviorDataCollatorForLanguageModeling(DefaultDataCollator):
         return batch
 
 
-class TransDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
+class EventDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
 
     def __call__(
             self, examples: List[Union[List[int], torch.Tensor, Dict[str, torch.Tensor]]]
@@ -191,13 +189,13 @@ class TransDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
 
 
 
-
 class UserDataCollatorForLanguageModeling(DataCollatorForLanguageModeling):
     def __call__(
             self, examples: List[Union[List[int], torch.Tensor, Dict[str, torch.Tensor]]]
     ) -> Dict[str, torch.Tensor]:
 
         collated_batch = _collate_batch(examples, self.tokenizer, pad_to_multiple_of=None)
+
         batch = {
             "input_ids": collated_batch[0],
             "attention_mask": collated_batch[1]

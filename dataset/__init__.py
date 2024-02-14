@@ -1,1 +1,1 @@
-from .datacollator import TransDataCollatorForLanguageModeling
+from .datacollator import EventDataCollatorForLanguageModeling

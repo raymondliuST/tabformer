@@ -132,9 +132,7 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
         metric_dict = {}
 
         seq_len = prediction_scores.size(1)
-        # TODO : remove_target is True for card
-        field_names = self.vocab.get_field_keys(remove_target=False, ignore_special=True)
-        
+        field_names = self.vocab.get_field_keys(ignore_special=True)
 
         for field_idx, field_name in enumerate(field_names):
 
