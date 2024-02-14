@@ -14,7 +14,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 
 from misc.utils import divide_chunks
-from dataset.vocab import Vocabulary
+from dataset.vocab import Vocabulary, load_vocab
 
 logger = logging.getLogger(__name__)
 log = logger
@@ -64,11 +64,10 @@ class EventDataset(Dataset):
         print("Starting encoding data")
         self.encode_data()
         print("Initiating vocab")
-        self.init_vocab()
+        self.init_save_vocab(vocab_dir)
         print("Preparing samples")
         self.prepare_samples()
-        print("Saving vocab")
-        self.save_vocab(vocab_dir)
+
 
     def __getitem__(self, index):
         if self.flatten:
@@ -84,11 +83,6 @@ class EventDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def save_vocab(self, vocab_dir):
-        file_name = path.join(vocab_dir, f'vocab{self.fextension}.nb')
-        log.info(f"saving vocab at {file_name}")
-        self.vocab.save_vocab(file_name)
-
     @staticmethod
     def label_fit_transform(column, enc_type="label"):
         if enc_type == "label":
@@ -99,20 +93,6 @@ class EventDataset(Dataset):
 
         return mfit, mfit.transform(column)
 
-    # def _quantization_binning(self, data):
-    #     qtls = np.arange(0.0, 1.0 + 1 / self.num_bins, 1 / self.num_bins)
-    #     bin_edges = np.quantile(data, qtls, axis=0)  # (num_bins + 1, num_features)
-    #     bin_widths = np.diff(bin_edges, axis=0)
-    #     bin_centers = bin_edges[:-1] + bin_widths / 2  # ()
-    #     return bin_edges, bin_centers, bin_widths
-
-    # def _quantize(self, inputs, bin_edges):
-    #     quant_inputs = np.zeros(inputs.shape[0])
-    #     for i, x in enumerate(inputs):
-    #         quant_inputs[i] = np.digitize(x, bin_edges)
-    #     quant_inputs = quant_inputs.clip(1, self.num_bins) - 1  # Clip edges
-    #     return quant_inputs
-
     def user_level_data(self):
         # Group trans data by user estid
         # Total Length will be the number of unique user
@@ -122,6 +102,7 @@ class EventDataset(Dataset):
         trans_data, trans_labels = [], []
 
         if self.cached and path.isfile(fname):
+
             log.info(f"loading cached user level data from {fname}")
             cached_data = pickle.load(open(fname, "rb"))
             trans_data = cached_data["trans"]
@@ -129,6 +110,7 @@ class EventDataset(Dataset):
             columns_names = cached_data["columns"]
 
         else:
+
             unique_users = self.event_table["estid"].unique()
             columns_names = list(self.event_table.columns)
 
@@ -240,7 +222,13 @@ class EventDataset(Dataset):
         log.info(f"writing to file {fname}")
         data.to_csv(fname, index=False)
 
-    def init_vocab(self):
+    def init_save_vocab(self, vocab_dir):
+        
+        file_name = path.join(vocab_dir, f'vocab{self.fextension}.json')
+
+        if self.cached:
+            self.vocab = load_vocab(file_name)
+            return
 
         column_names = list(self.event_table.columns)
         if self.skip_user:
@@ -263,6 +251,9 @@ class EventDataset(Dataset):
             if vocab_size > self.vocab.adap_thres:
                 log.info(f"\tsetting {column} for adaptive softmax")
                 self.vocab.adap_sm_cols.add(column)
+
+        log.info(f"saving vocab at {file_name}")
+        self.vocab.save_vocab(file_name)
 
     def encode_data(self):
         dirname = path.join(self.root, "preprocessed")

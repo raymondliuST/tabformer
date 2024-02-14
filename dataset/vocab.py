@@ -1,12 +1,37 @@
 from collections import OrderedDict
 import numpy as np
-
+import json
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
         self.__dict__ = self
 
+    
+def load_vocab(vocab_path):
+    with open(vocab_path) as f:
+        vocab_fields = json.load(f, object_pairs_hook=OrderedDict)
+    vocab = Vocabulary()
+
+    # Since json save will save int keys as string, we need to convert it back to in 
+    vocab.token2id = OrderedDict()
+    
+    for k,v in vocab_fields.get("token2id").items():
+        if k == 'SPECIAL':
+            vocab.token2id[k] = v
+        else:
+            vocab.token2id[k] = {int(subk): subv for subk,subv in v.items()}
+
+    vocab.id2token = OrderedDict()
+    for k,v in vocab_fields.get("id2token").items():
+        vocab.id2token[int(k)] = v
+        
+
+    vocab.field_keys = vocab_fields.get("field_keys")
+    vocab.filename = vocab_fields.get("filename")
+    vocab.column_weights = vocab_fields.get("column_weights")
+
+    return vocab
 
 class Vocabulary:
     def __init__(self, adap_thres=10000, target_column_name="Is Fraud?"):
@@ -47,6 +72,7 @@ class Vocabulary:
         global_id, local_id = None, None
 
         if token not in self.token2id[field_name]:
+            
             global_id = len(self.id2token)
             local_id = len(self.token2id[field_name])
 
@@ -113,13 +139,27 @@ class Vocabulary:
         else:
             raise ValueError("Only 'local_ids' or 'tokens' can be passed as value of the 'what_to_get' parameter.")
 
+    # def save_vocab(self, fname):
+    #     self.filename = fname
+    #     with open(fname, "w") as fout:
+    #         for idx in self.id2token:
+    #             token, field, _ = self.id2token[idx]
+    #             token = "%s_%s" % (field, token)
+    #             fout.write("%s\n" % token)
+
     def save_vocab(self, fname):
         self.filename = fname
-        with open(fname, "w") as fout:
-            for idx in self.id2token:
-                token, field, _ = self.id2token[idx]
-                token = "%s_%s" % (field, token)
-                fout.write("%s\n" % token)
+
+        fields_to_save = {
+                          "token2id": self.token2id,
+                          "id2token": self.id2token,
+                          "field_keys": self.field_keys,
+                          "fielname": self.filename,
+                          "column_weights": self.column_weights
+                          }
+
+        with open(fname, 'w') as f:
+            json.dump(fields_to_save, f)
 
     def get_field_keys(self, remove_target=True, ignore_special=False):
         keys = list(self.field_keys.keys())

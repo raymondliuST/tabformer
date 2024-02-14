@@ -14,7 +14,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 
 from misc.utils import divide_chunks
-from dataset.vocab import Vocabulary
+from dataset.vocab import Vocabulary, load_vocab
 
 logger = logging.getLogger(__name__)
 log = logger
@@ -60,11 +60,11 @@ class UserDataset(Dataset):
         print("Starting encoding data")
         self.encode_data()
         print("Initiating vocab")
-        self.init_vocab()
+        self.init_save_vocab(vocab_dir)
         print("Preparing samples")
         self.prepare_samples()
-        print("Saving vocab")
-        self.save_vocab(vocab_dir)
+        # print("Saving vocab")
+        # self.save_vocab(vocab_dir)
 
     def __getitem__(self, index):
         if self.flatten:
@@ -79,11 +79,6 @@ class UserDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-
-    def save_vocab(self, vocab_dir):
-        file_name = path.join(vocab_dir, f'vocab{self.fextension}.nb')
-        log.info(f"saving vocab at {file_name}")
-        self.vocab.save_vocab(file_name)
 
     @staticmethod
     def label_fit_transform(column, enc_type="label"):
@@ -141,7 +136,6 @@ class UserDataset(Dataset):
         user_vocab_ids = []
 
         sep_id = self.vocab.get_id(self.vocab.sep_token, special_token=True)
-        
         
         for trans in trans_lst:
             vocab_ids = []
@@ -202,7 +196,13 @@ class UserDataset(Dataset):
         log.info(f"writing to file {fname}")
         data.to_csv(fname, index=False)
 
-    def init_vocab(self):
+    def init_save_vocab(self, vocab_dir):
+
+        file_name = path.join(vocab_dir, f'vocab{self.fextension}.json')
+
+        if self.cached:
+            self.vocab = load_vocab(file_name)
+            return
 
         column_names = list(self.user_table.columns)
         if self.skip_user:
@@ -229,6 +229,9 @@ class UserDataset(Dataset):
             if vocab_size > self.vocab.adap_thres:
                 log.info(f"\tsetting {column} for adaptive softmax")
                 self.vocab.adap_sm_cols.add(column)
+
+        log.info(f"saving vocab at {file_name}")
+        self.vocab.save_vocab(file_name)
 
     def encode_data(self):
         dirname = path.join(self.root, "preprocessed")
