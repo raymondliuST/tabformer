@@ -26,8 +26,7 @@ vocab = dataset.vocab
 custom_special_tokens = vocab.get_special_tokens()
 tokenizer = BertTokenizer(vocab_file="vocab/vocab_event_w_dedupe.nb", do_lower_case=False, **custom_special_tokens)
 collactor_cls = "EventDataCollatorForLanguageModeling"
-import pdb
-pdb.set_trace()
+
 tab_net = TabFormerBertLM(custom_special_tokens,
                                vocab=vocab,
                                field_ce=True,

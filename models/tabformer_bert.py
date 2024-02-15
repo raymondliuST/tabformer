@@ -6,14 +6,13 @@ from transformers.models.bert.modeling_bert import ACT2FN
 
 from transformers.models.bert.modeling_bert import BertForMaskedLM
 from transformers.models.bert.configuration_bert import BertConfig
-from models.custom_criterion import CustomAdaptiveLogSoftmax
 
 BertLayerNorm = torch.nn.LayerNorm
 
 class TabFormerBertConfig(BertConfig):
     def __init__(
         self,
-        flatten=True,
+        mode="user",
         ncols=12,
         vocab_size=30522,
         field_hidden_size=64,
@@ -24,10 +23,10 @@ class TabFormerBertConfig(BertConfig):
     ):
         super().__init__(pad_token_id=pad_token_id, **kwargs)
 
+        self.mode = "event"
         self.ncols = ncols
         self.field_hidden_size = field_hidden_size
         self.hidden_size = hidden_size
-        self.flatten = flatten
         self.vocab_size = vocab_size
         self.num_attention_heads=num_attention_heads
 
@@ -76,9 +75,10 @@ class TabFormerBertOnlyMLMHead(nn.Module):
         return prediction_scores
 
 class TabFormerBertForMaskedLM(BertForMaskedLM):
-    def __init__(self, config, vocab):
+    def __init__(self, config, vocab, mode):
         super().__init__(config)
 
+        self.mode = mode
         self.vocab = vocab
         self.cls = TabFormerBertOnlyMLMHead(config)
         self.init_weights()
@@ -112,8 +112,8 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
         self.step += 1
         sequence_output = outputs[0]  # [bsz * seqlen * hidden]
 
-        if not self.config.flatten:
-            
+        if self.mode == "event":
+            # need to flatten event
             output_sz = list(sequence_output.size())
             expected_sz = [output_sz[0], output_sz[1]*self.config.ncols, -1] #bsz, (seqlen * ncol), -1
 
@@ -135,13 +135,10 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
         field_names = self.vocab.get_field_keys(ignore_special=True)
 
         for field_idx, field_name in enumerate(field_names):
-
-
             col_ids = list(range(field_idx, seq_len, len(field_names)))
             
             global_ids_field = self.vocab.get_field_ids(field_name)
 
-            
             prediction_scores_field = prediction_scores[:, col_ids, :][:, :, global_ids_field]  # bsz * seq_len * field_vocab_size
 
             masked_lm_labels_field = masked_lm_labels[:, col_ids] # bsz * (seq length) 
@@ -164,18 +161,6 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
 
             total_masked_lm_loss += masked_lm_loss_field
             metric_dict[field_name] = metrics
-
-            # if self.step%100 == 0 and field_name == "domain_category":
-                
-            #     print(field_name)
-            #     print(masked_lm_accuracy_field)
-            #     print(f"predictions: ")
-            #     print(f"{torch.argmax(prediction_scores_field, dim=2)}")
-            #     print(f"True: ")
-            #     print(f"{masked_lm_labels_field_local}")
-            #     import pdb
-            #     pdb.set_trace()
-            # log accuracies
             
         result = {"loss": total_masked_lm_loss, "outputs": outputs, "metric_dict": metric_dict}
             
@@ -191,18 +176,6 @@ class TabFormerBertForMaskedLM(BertForMaskedLM):
             "macro":macro_acc(prediction_scores_field, masked_lm_labels_field_local),
             "f1":f1_score(prediction_scores_field, masked_lm_labels_field_local)
         }
-        
-    def get_criterion(self, fname, vs, device, cutoffs=False, div_value=4.0):
-
-        if fname in self.vocab.adap_sm_cols:
-            if not cutoffs:
-                cutoffs = [int(vs/15), 3*int(vs/15), 6*int(vs/15)]
-
-            criteria = CustomAdaptiveLogSoftmax(in_features=vs, n_classes=vs, cutoffs=cutoffs, div_value=div_value)
-
-            return criteria.to(device)
-        else:
-            return CrossEntropyLoss()
 
 class TabFormerBertModel(BertForMaskedLM):
     def __init__(self, config):
@@ -238,3 +211,5 @@ class TabFormerBertModel(BertForMaskedLM):
         sequence_output = outputs[0]  # [bsz * seqlen * hidden]
 
         return sequence_output
+
+

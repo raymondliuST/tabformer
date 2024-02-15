@@ -7,11 +7,15 @@ import torch
 import random
 from args import define_main_parser
 
-from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
+from transformers import BertTokenizer
+
+from transformers import TrainingArguments
 from custom_trainer import CustomTrainer
-from models.modules import TabFormerBertLM, TabFormerGPT2
+from dataset.behavior import BehaviorDataset
+from dataset.vocab import load_vocab
+from models.modules import PeopleModelModule
 from misc.utils import random_split_dataset
-from dataset.datacollator import EventDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling
+from dataset.datacollator import BehaviorDataCollatorForLanguageModeling, EventDataCollatorForLanguageModeling, UserDataCollatorForLanguageModeling
 from dataset.event import EventDataset
 from dataset.user import UserDataset
 import wandb 
@@ -38,7 +42,29 @@ def main(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)  # torch.cuda
 
-    if args.data_type == 'event':
+    user_vocab = None
+    event_vocab = None
+    user_ncols = None
+    event_ncols = None
+    if args.mode == "user":
+        dataset = UserDataset(mlm=True,
+                 estids=None,
+                 cached=True,
+                 root="./data/user/",
+                 fname="user_data",
+                 vocab_dir="vocab",
+                 fextension="user",
+                 flatten=True,
+                 skip_user=True)
+        user_vocab = dataset.vocab
+        user_ncols = dataset.ncols
+        custom_special_tokens = user_vocab.get_special_tokens()
+
+        user_tokenizer = BertTokenizer(vocab_file=user_vocab.filename, do_lower_case=False, **custom_special_tokens)
+        data_collator = UserDataCollatorForLanguageModeling(tokenizer=user_tokenizer, 
+                                                            mlm=True, 
+                                                            mlm_probability=args.mlm_prob)
+    elif args.mode == 'event':
         dataset = EventDataset(mlm=True,
                  estids=None,
                  seq_len=6,
@@ -51,19 +77,39 @@ def main(args):
                  flatten=False,
                  stride=2,
                  skip_user=True)
-    elif args.data_type == "user":
-        dataset = UserDataset(mlm=True,
+        event_vocab = dataset.vocab
+        event_ncols = dataset.ncols
+        custom_special_tokens = event_vocab.get_special_tokens()
+
+        event_tokenizer = BertTokenizer(vocab_file=event_vocab.filename, do_lower_case=False, **custom_special_tokens)
+        data_collator = EventDataCollatorForLanguageModeling(tokenizer=event_tokenizer, 
+                                                            mlm=True, 
+                                                            mlm_probability=args.mlm_prob)
+    else:
+        user_vocab = load_vocab("vocab/vocab_user.json")
+        event_vocab = load_vocab("vocab/vocab_event_w_dedupe.json")
+        
+        dataset = BehaviorDataset(mlm=False,
                  estids=None,
                  cached=True,
-                 root="./data/user/",
-                 fname="user_data",
-                 vocab_dir="vocab",
-                 fextension="user",
-                 flatten=True,
-                 skip_user=True)
-    
-    vocab = dataset.vocab
-    custom_special_tokens = vocab.get_special_tokens()
+                 root="./data/behavior/",
+                 fname="people-model-20240124",
+                 fextension="behavior",
+                 nrows=None,
+                 flatten=True, #TODO: delete flatten
+                 skip_user=True,
+                 user_vocab = user_vocab,
+                 event_vocab = event_vocab)
+        user_ncols = dataset.user_ncols
+        event_ncols = dataset.event_ncols
+
+        custom_special_tokens = event_vocab.get_special_tokens()
+        collactor_cls = "UserDataCollatorForLanguageModeling"
+
+        user_tokenizer = BertTokenizer(vocab_file=user_vocab.filename, do_lower_case=False, **custom_special_tokens)
+        event_tokenizer = BertTokenizer(vocab_file=event_vocab.filename, do_lower_case=False, **custom_special_tokens)
+        data_collator = BehaviorDataCollatorForLanguageModeling(event_tokenizer=event_tokenizer, 
+                                                                user_tokenizer=user_tokenizer)
 
     # split dataset into train, val, test [0.6. 0.2, 0.2]
     totalN = len(dataset)
@@ -83,36 +129,19 @@ def main(args):
 
     train_dataset, eval_dataset, test_dataset = random_split_dataset(dataset, lengths)
 
-    if args.lm_type == "bert":
-        tab_net = TabFormerBertLM(custom_special_tokens,
-                               vocab=vocab,
-                               field_ce=args.field_ce,
-                               flatten=args.flatten,
-                               ncols=dataset.ncols,
-                               field_hidden_size=args.field_hs
-                               )
-    else:
-        tab_net = TabFormerGPT2(custom_special_tokens,
-                             vocab=vocab,
-                             field_ce=args.field_ce,
-                             flatten=args.flatten,
-                             )
+
+    # loading model
+    tab_net = PeopleModelModule(mode=args.mode,
+                                special_tokens=custom_special_tokens,
+                                user_vocab=user_vocab,
+                                event_vocab=event_vocab,
+                                user_ncols=user_ncols,
+                                event_ncols=event_ncols,
+                                field_hidden_size=args.field_hs)
 
     log.info(f"model initiated: {tab_net.model.__class__}")
 
-    if args.flatten:
-        collactor_cls = "UserDataCollatorForLanguageModeling"
-    else:
-        collactor_cls = "EventDataCollatorForLanguageModeling"
-
-    log.info(f"collactor class: {collactor_cls}")
-    data_collator = eval(collactor_cls)(
-        tokenizer=tab_net.tokenizer, mlm=args.mlm, mlm_probability=args.mlm_prob
-    )
     print(f"logdir: {args.log_dir}")
-
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    print(device)
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,  # output directory
@@ -128,7 +157,7 @@ def main(args):
         overwrite_output_dir=True,
         logging_steps=100,
         report_to="wandb",
-        run_name=f"{args.data_type}/lr={args.learning_rate}/hs={args.field_hs}",
+        run_name=f"{args.mode}/lr={args.learning_rate}/hs={args.field_hs}",
         dataloader_num_workers=4,
         fp16= True
     )   
@@ -164,10 +193,10 @@ if __name__ == "__main__":
     makedirs(opts.output_dir, exist_ok=True)
     makedirs(opts.log_dir, exist_ok=True)
 
-    if opts.mlm and opts.lm_type == "gpt2":
-        raise Exception("Error: GPT2 doesn't need '--mlm' option. Please re-run with this flag removed.")
+    # if opts.mlm and opts.lm_type == "gpt2":
+    #     raise Exception("Error: GPT2 doesn't need '--mlm' option. Please re-run with this flag removed.")
 
-    if not opts.mlm and opts.lm_type == "bert":
-        raise Exception("Error: Bert needs '--mlm' option. Please re-run with this flag included.")
+    # if not opts.mlm and opts.lm_type == "bert":
+    #     raise Exception("Error: Bert needs '--mlm' option. Please re-run with this flag included.")
 
     main(opts)

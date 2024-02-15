@@ -7,15 +7,8 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import CrossEntropyLoss
 
-from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
-from transformers.utils import (
-    add_code_sample_docstrings,
-    add_end_docstrings,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    logging,
-    replace_return_docstrings,
-)
+from transformers.utils import logging
+
 logger = logging.get_logger(__name__)
 
 
@@ -161,12 +154,20 @@ class TabFormerBart(BartForConditionalGeneration):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,):
-
-
         """
             Args:
                 input_ids: (bsz, input_ncols)
-                    input to encoder, i.e user data
+                    input to encoder: user data
+
+                attention_mask: 
+                    encoder attention mask (None)
+
+                labels: (bsz, seq_len, label_ncols)
+                    padded decoder labels
+
+                decoder_attention_mask:
+                    decoder att mask for padding 
+
         """
         
         

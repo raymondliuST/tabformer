@@ -24,16 +24,12 @@ class BehaviorDataset(Dataset):
     def __init__(self,
                  mlm=False,
                  estids=None,
-                 seq_len=6,
-                 stride=2,
                  cached=False,
                  root="./data/behavior/",
                  fname="people-model-20240124",
-                 vocab_dir="vocab",
                  fextension="behavior",
                  nrows=None,
                  flatten=True,
-                 adap_thres=10 ** 8,
                  skip_user=True,
                  user_vocab = None,
                  event_vocab = None):
@@ -47,14 +43,12 @@ class BehaviorDataset(Dataset):
         self.skip_user = skip_user
 
         self.mlm = mlm
-        self.event_stride = stride
 
         self.flatten = flatten
 
         self.user_vocab = user_vocab
         self.event_vocab = event_vocab
 
-        self.seq_len = seq_len
         self.encoder_fit = {}
 
         self.behavior_table = None
@@ -72,9 +66,6 @@ class BehaviorDataset(Dataset):
 
 
     def __getitem__(self, index):
-
-        assert self.flatten == True
-
         user_data = torch.tensor(self.data[index]["input"], dtype=torch.long)
         event_data = torch.tensor(self.data[index]["label"], dtype=torch.long).reshape(-1, self.event_ncols)
 
@@ -82,16 +73,6 @@ class BehaviorDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-
-    @staticmethod
-    def label_fit_transform(column, enc_type="label"):
-        if enc_type == "label":
-            mfit = LabelEncoder()
-        else:
-            mfit = MinMaxScaler()
-        mfit.fit(column)
-
-        return mfit, mfit.transform(column)
 
     def user_level_data(self):
         # Group data by user estid
@@ -122,7 +103,6 @@ class BehaviorDataset(Dataset):
                 user_data = list(user_all_data.iloc[0][user_col_names]) # each user can only have one row but events can be multiple
                 event_data = [] # flattened event data i.e (,seq_len * ncols)
                 for idx, row in user_all_data.iterrows():
-                    event_row = list(row[event_col_names])
                     event_data.extend(row[event_col_names])
 
                 behavior_user_data.append(user_data)
@@ -161,9 +141,7 @@ class BehaviorDataset(Dataset):
             
                 vocab_id = vocab.get_id(field, column_names[jdx])
                 vocab_ids.append(vocab_id)
-            # TODO : need to handle ncols when sep is not added
-            # if self.mlm and self.flatten:  # only add [SEP] for BERT + flatten scenario
-            #     vocab_ids.append(sep_id)
+
             user_vocab_ids.append(vocab_ids)
         return user_vocab_ids
 
@@ -186,34 +164,13 @@ class BehaviorDataset(Dataset):
             user_row_ids = self.format_data(user_row, user_col_names, mode = "user") # global ids 
             event_row_ids = self.format_data(event_row, event_col_names, mode = "event") # global ids 
 
-            bos_token = self.event_vocab.get_id(self.event_vocab.bos_token, special_token=True)  # will be used for GPT2
-            eos_token = self.event_vocab.get_id(self.event_vocab.eos_token, special_token=True)  # will be used for GPT2
-           
-            if self.seq_len is None:
-                # each event is full trace
-                ids = event_row_ids
-                ids = [idx for ids_lst in ids for idx in ids_lst]
-                # if not self.mlm and self.flatten:  # for GPT2, need to add [BOS] and [EOS] tokens
-                #     ids = [bos_token] + ids + [eos_token]
-                self.data.append({"input": user_row_ids[0], "label": ids})
+            # each event is full trace
+            ids = event_row_ids
+            ids = [idx for ids_lst in ids for idx in ids_lst]
 
-            else:
-                # each event is by sequence length
-                for jdx in range(0, len(event_row_ids) - self.seq_len + 1, self.event_stride):
-                    ids = event_row_ids[jdx:(jdx + self.seq_len)]
-                    ids = [idx for ids_lst in ids for idx in ids_lst]  # flattening
-                    # if not self.mlm and self.flatten:  # for GPT2, need to add [BOS] and [EOS] tokens
-                    #     ids = [bos_token] * self.event_ncols + ids + [eos_token] * self.event_ncols
-                    self.data.append({"input": user_row_ids[0], "label": ids})
-        
+            self.data.append({"input": user_row_ids[0], "label": ids})
 
-        '''
-            ncols = total fields - 1 (special tokens)
-            if bert:
-                ncols += 1 (for sep)
-        '''
-        
-        # log.info(f"ncols: {self.ncols}")
+
         log.info(f"no of samples {len(self.data)}")
 
     def get_csv(self, fname):
@@ -231,29 +188,12 @@ class BehaviorDataset(Dataset):
         log.info(f"writing to file {fname}")
         data.to_csv(fname, index=False)
 
-    def init_vocab(self):
+    @staticmethod
+    def label_fit_transform(column, enc_type="label"):
+        mfit = LabelEncoder()
+        mfit.fit(column)
 
-        column_names = list(self.event_table.columns)
-        if self.skip_user:
-            column_names.remove("estid")
-
-        self.vocab.set_field_keys(column_names)
-
-        for column in column_names:
-            unique_values = self.event_table[column].value_counts(sort=True).to_dict()  # returns sorted
-            for val in unique_values:
-                self.vocab.set_id(val, column)
-
-        log.info(f"total columns: {list(column_names)}")
-        log.info(f"total vocabulary size: {len(self.vocab.id2token)}")
-
-        for column in self.vocab.field_keys:
-            vocab_size = len(self.vocab.token2id[column])
-            log.info(f"column : {column}, vocab size : {vocab_size}")
-
-            if vocab_size > self.vocab.adap_thres:
-                log.info(f"\tsetting {column} for adaptive softmax")
-                self.vocab.adap_sm_cols.add(column)
+        return mfit, mfit.transform(column)
 
     def encode_data(self):
         dirname = path.join(self.root, "preprocessed")
@@ -286,8 +226,6 @@ class BehaviorDataset(Dataset):
             col_data = self.encoder_fit[col_name].transform(col_data)
 
             data[col_name] = col_data
-
-        
 
         columns_to_select = ['estid','dayOfWeek', 'dayOfMonth', 'timeOfDay', 'url_category', 'domain_category', 
                                 'os', 'deviceType', 'li_age', 'li_gender', 'li_income', 'city_location', 'city_size', 'city_tech', 'city_urban', 'organization']

@@ -64,8 +64,8 @@ def tolist(x):
     return x.tolist()
 
 class BehaviorDataCollatorForLanguageModeling(DefaultDataCollator):
-    def __init__(self, event_tokenizer, user_tokenizer, tokenizer = None):
-        super().__init__(tokenizer)
+    def __init__(self, event_tokenizer, user_tokenizer):
+        super().__init__()
         self.event_tokenizer = event_tokenizer
         self.user_tokenizer = user_tokenizer
 
@@ -75,8 +75,10 @@ class BehaviorDataCollatorForLanguageModeling(DefaultDataCollator):
         input_list = [f["input"] for f in features]
         label_list = [f["label"] for f in features]
 
+        input_ids, input_attention_mask = _collate_batch(input_list, self.user_tokenizer, pad_to_multiple_of=None)
         batch = {
-            "input_ids": _collate_batch(input_list, self.user_tokenizer, pad_to_multiple_of=None),
+            "input_ids": input_ids,
+            "attention_mask": input_attention_mask
         }
 
         label_batch, label_attention_mask = _collate_batch(label_list, self.event_tokenizer, pad_to_multiple_of=None)

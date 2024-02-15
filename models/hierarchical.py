@@ -1,5 +1,8 @@
 import torch.nn as nn
 
+from transformers import PreTrainedModel
+from models.tabformer_bert import TabFormerBertForMaskedLM
+
 
 class TabFormerConcatEmbeddings(nn.Module):
     """TabFormerConcatEmbeddings: Embeds tabular data of categorical variables
@@ -90,3 +93,21 @@ class TabFormerEmbeddings(nn.Module):
         inputs_embeds = self.lin_proj(inputs_embeds)
 
         return inputs_embeds
+
+class TabFormerHierarchicalLM(PreTrainedModel):
+    base_model_prefix = "bert"
+
+    def __init__(self, config, vocab, mode):
+        super().__init__(config)
+
+        self.config = config
+        self.vocab = vocab
+        self.tab_embeddings = TabFormerEmbeddings(self.config)
+        self.tb_model = TabFormerBertForMaskedLM(self.config, vocab, mode)
+
+    def forward(self, input_ids, **input_args):
+        # input ids: bsz, seq_len, ncol
+        # input args {masked_lm_labels: tensor}
+        inputs_embeds = self.tab_embeddings(input_ids)
+        output = self.tb_model(inputs_embeds=inputs_embeds, **input_args)
+        return output
